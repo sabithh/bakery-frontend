@@ -42,7 +42,6 @@ dependencies:
   fl_chart: ^0.68.0
 
   # Chat & Voice dependencies (Restored)
-  speech_to_text: ^6.6.1
   audioplayers: ^6.0.0
   
   # Image & File dependencies (Restored)
@@ -51,6 +50,8 @@ dependencies:
 
   # Other utilities (from both)
   cupertino_icons: ^1.0.2
+  record: ^6.2.1
+  path_provider: ^2.1.6
 
 
 dev_dependencies:

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -18,7 +19,7 @@ import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'dart:typed_data';
 
 // --- CONFIGURATION ---
-const String API_BASE_URL = 'https://bakery-backend-5qkn.onrender.com'; // USE YOUR SERVER IP
+const String API_BASE_URL = 'https://jxuwtvranzrhncodhqup.supabase.co/functions/v1'; // USE YOUR SUPABASE URL
 
 void main() {
   runApp(const BillingApp());
@@ -188,24 +189,84 @@ class CartItem {
 }
 
 // --- WIDGETS ---
-class BarcodeScannerScreen extends StatefulWidget {
-  const BarcodeScannerScreen({Key? key}) : super(key: key);
+class ContinuousScannerScreen extends StatefulWidget {
+  final List<Product> products;
+  final Map<String, CartItem> cart;
+  final void Function(Product product, {int quantity, double? weightGrams, double? customPrice, String? existingCartId}) onAddItemToCart;
+  final void Function(String cartId) onRemoveItemFromCart;
+
+  const ContinuousScannerScreen({
+    Key? key,
+    required this.products,
+    required this.cart,
+    required this.onAddItemToCart,
+    required this.onRemoveItemFromCart,
+  }) : super(key: key);
+
   @override
-  State<BarcodeScannerScreen> createState() => _BarcodeScannerScreenState();
+  State<ContinuousScannerScreen> createState() => _ContinuousScannerScreenState();
 }
-class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
+
+class _ContinuousScannerScreenState extends State<ContinuousScannerScreen> {
   final MobileScannerController cameraController = MobileScannerController();
-  bool isScanned = false;
+  DateTime _lastScanTime = DateTime.now().subtract(const Duration(seconds: 2));
+  String? _lastScannedCode;
+
   @override
   void dispose() {
     cameraController.dispose();
     super.dispose();
   }
+
+  void _handleDetection(BarcodeCapture capture) {
+    if (capture.barcodes.isEmpty) return;
+    final String? code = capture.barcodes.first.rawValue;
+    if (code == null || code.isEmpty) return;
+
+    final now = DateTime.now();
+    if (code == _lastScannedCode && now.difference(_lastScanTime).inMilliseconds < 1500) {
+      return;
+    }
+
+    _lastScanTime = now;
+    _lastScannedCode = code;
+
+    try {
+      final product = widget.products.firstWhere((p) => p.barcode == code || p.id == code);
+      HapticFeedback.vibrate();
+
+      if (product.unitType == 'piece') {
+        widget.onAddItemToCart(product, quantity: 1);
+        if (mounted) {
+            setState(() {});
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added 1x ${product.name}'), duration: const Duration(milliseconds: 800)));
+        }
+      } else {
+        cameraController.stop();
+        showDialog(
+          context: context,
+          builder: (context) => KgItemDialog(
+            product: product,
+            onItemAdded: (prod, {weightGrams, cartId}) {
+              widget.onAddItemToCart(prod, weightGrams: weightGrams, existingCartId: cartId);
+              if (mounted) setState(() {});
+            },
+          ),
+        ).then((_) {
+          if (mounted) cameraController.start();
+        });
+      }
+    } catch (e) {
+      HapticFeedback.heavyImpact();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Product not found: $code'), backgroundColor: Colors.red, duration: const Duration(seconds: 1)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scan Barcode'),
+        title: const Text('Continuous Scanner'),
         actions: [
           IconButton(
             icon: const Icon(Icons.camera_alt_outlined),
@@ -214,40 +275,98 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
           ),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          MobileScanner(
-            controller: cameraController,
-            onDetect: (capture) {
-              if (!isScanned && capture.barcodes.isNotEmpty) {
-                final String? code = capture.barcodes.first.rawValue;
-                if (code != null && code.isNotEmpty) {
-                  setState(() => isScanned = true);
-                  HapticFeedback.vibrate();
-                  Navigator.of(context).pop(code);
-                }
-              }
-            },
-          ),
-          Container(
-            decoration: ShapeDecoration(
-              shape: ScannerOverlayShape(
-                borderColor: Colors.amber,
-                borderRadius: 12,
-                borderLength: 30,
-                borderWidth: 4,
-                cutOutSize: MediaQuery.of(context).size.width * 0.8,
-              ),
+          Expanded(
+            flex: 2,
+            child: Stack(
+              children: [
+                MobileScanner(
+                  controller: cameraController,
+                  onDetect: _handleDetection,
+                ),
+                Container(
+                  decoration: ShapeDecoration(
+                    shape: ScannerOverlayShape(
+                      borderColor: Colors.amber,
+                      borderRadius: 12,
+                      borderLength: 30,
+                      borderWidth: 4,
+                      cutOutSize: MediaQuery.of(context).size.width * 0.7,
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  bottom: 16, left: 0, right: 0,
+                  child: Text(
+                    'Scan products continuously',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500, shadows: [Shadow(blurRadius: 4, color: Colors.black)]),
+                  ),
+                ),
+              ],
             ),
           ),
-          const Positioned(
-            bottom: 100, left: 0, right: 0,
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Position the barcode within the frame to scan',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+          Expanded(
+            flex: 3,
+            child: Container(
+              color: Colors.white,
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    color: Colors.grey.shade100,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Scanned Items', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text('Total: ₹${widget.cart.values.fold(0.0, (sum, item) => sum + item.total).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: widget.cart.isEmpty
+                        ? const Center(child: Text('No items scanned yet.', style: TextStyle(color: Colors.grey)))
+                        : ListView.separated(
+                            itemCount: widget.cart.length,
+                            separatorBuilder: (context, index) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = widget.cart.values.elementAt(index);
+                              return ListTile(
+                                dense: true,
+                                title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text(item.subtitle),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(item.displayPrice, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      onPressed: () {
+                                        widget.onRemoveItemFromCart(item.cartId);
+                                        setState(() {});
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text('Done Scanning', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -463,7 +582,7 @@ class _BillingScreenState extends State<BillingScreen> {
   String? _error;
   final Map<String, CartItem> _cart = {};
 
-  final SpeechToText _speechToText = SpeechToText();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isListening = false;
   String _voiceStatus = '';
   bool _speechRecognitionAvailable = false;
@@ -482,6 +601,7 @@ class _BillingScreenState extends State<BillingScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
@@ -499,9 +619,25 @@ class _BillingScreenState extends State<BillingScreen> {
     setState(() => _isLoading = true);
     await _checkConnectivity();
 
+    // Auto-connect to saved printer
+    final prefs = await SharedPreferences.getInstance();
+    final savedPrinterAddress = prefs.getString('saved_printer_mac');
+    if (savedPrinterAddress != null) {
+        try {
+            _devices = await _printer.getBondedDevices();
+            final savedDevice = _devices.firstWhere((d) => d.address == savedPrinterAddress);
+            setState(() { _selectedPrinter = savedDevice; });
+            await _printer.connect(savedDevice);
+        } catch (e) {
+            // Ignore error, they can manually pair later
+        }
+    }
+
     if (!_isConnected) {
        setState(() => _isLoading = false);
       return;
+    } else {
+        await _syncPendingSales(silent: true);
     }
 
     await _fetchOutlets();
@@ -529,62 +665,93 @@ class _BillingScreenState extends State<BillingScreen> {
   Future<void> _checkConnectivity() async {
     final connectivityResult = await (Connectivity().checkConnectivity());
     if (connectivityResult.contains(ConnectivityResult.none)) {
-      setState(() {
-        _isConnected = false;
-        _error = "No Internet Connection. Please check your network and retry.";
-      });
+      if (mounted) {
+        setState(() {
+          _isConnected = false;
+          _error = null; // Don't block UI
+        });
+        _showSnackBar('Running in offline mode. Bills will be saved locally.', isError: false);
+      }
     } else {
-       setState(() {
-        _isConnected = true;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+          _error = null;
+        });
+      }
     }
   }
 
   Future<void> _fetchOutlets() async {
+    final prefs = await SharedPreferences.getInstance();
     try {
-      final response = await http.get(Uri.parse('$API_BASE_URL/outlets/manage/'));
-      if (mounted) {
+      if (_isConnected) {
+        final response = await http.get(Uri.parse('$API_BASE_URL/outlets/manage/'));
         if (response.statusCode == 200) {
-          final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+          prefs.setString('cache_outlets', response.body);
+          if (mounted) {
+            final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+            setState(() {
+              _outlets = data.map((json) => Outlet.fromJson(json)).where((o) => o.type == 'sales').toList();
+            });
+          }
+        }
+      } else {
+        // Load from cache
+        final cached = prefs.getString('cache_outlets');
+        if (cached != null && mounted) {
+          final List<dynamic> data = jsonDecode(cached);
           setState(() {
             _outlets = data.map((json) => Outlet.fromJson(json)).where((o) => o.type == 'sales').toList();
-            if(_outlets.isEmpty) {
-              _error = "No sales outlets found. Please configure outlets in the Owner App.";
-            }
           });
         } else {
-          throw Exception('Failed to load outlets');
+           setState(() => _error = "Offline: No cached outlets found.");
         }
       }
     } catch (e) {
-      _showSnackBar('Failed to load outlets: $e', isError: true);
-      setState(() => _error = "Could not fetch outlets. Check server connection.");
+      // Fallback to cache on exception
+      final cached = prefs.getString('cache_outlets');
+      if (cached != null && mounted) {
+        final List<dynamic> data = jsonDecode(cached);
+        setState(() {
+          _outlets = data.map((json) => Outlet.fromJson(json)).where((o) => o.type == 'sales').toList();
+        });
+      }
     }
   }
 
   Future<void> _fetchStaff() async {
-    setState(() => _isLoading = true);
+    if(mounted) setState(() => _isLoading = true);
+    final prefs = await SharedPreferences.getInstance();
     try {
-      // --- CORRECTED URL ---
-      final response = await http.get(Uri.parse('$API_BASE_URL/staff/list/')); 
-      
-      if (mounted) {
+      if (_isConnected) {
+        final response = await http.get(Uri.parse('$API_BASE_URL/staff/list/')); 
         if (response.statusCode == 200) {
-          final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+          prefs.setString('cache_staff', response.body);
+          if (mounted) {
+            final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+            setState(() {
+              _staffList = data.map((json) => Staff.fromJson(json)).toList();
+            });
+          }
+        }
+      } else {
+        final cached = prefs.getString('cache_staff');
+        if (cached != null && mounted) {
+          final List<dynamic> data = jsonDecode(cached);
           setState(() {
             _staffList = data.map((json) => Staff.fromJson(json)).toList();
-             if(_staffList.isEmpty) {
-              _error = "No staff members found. Please add staff in the Owner App.";
-            }
           });
-        } else {
-          throw Exception('Failed to load staff');
         }
       }
     } catch (e) {
-      _showSnackBar('Failed to load staff: $e', isError: true);
-      setState(() => _error = "Could not fetch staff. Check server connection.");
+      final cached = prefs.getString('cache_staff');
+      if (cached != null && mounted) {
+        final List<dynamic> data = jsonDecode(cached);
+        setState(() {
+          _staffList = data.map((json) => Staff.fromJson(json)).toList();
+        });
+      }
     } finally {
       if(mounted) setState(() => _isLoading = false);
     }
@@ -717,36 +884,13 @@ class _BillingScreenState extends State<BillingScreen> {
 
    Future<void> _initializeSpeech() async { 
      try { 
-       if (await Permission.microphone.request().isPermanentlyDenied) { 
-         _showSnackBar('Microphone permission is permanently denied.', isError: true); 
-         setState(() => _speechRecognitionAvailable = false); 
-         return; 
-       } 
-
-       final available = await _speechToText.initialize( 
-         onStatus: (status) { 
-           if (!mounted) return; 
-           setState(() { 
-             _isListening = _speechToText.isListening; 
-           }); 
-         }, 
-         onError: (errorNotification) { 
-           if (!mounted) return; 
-           setState(() { 
-             _isListening = false; 
-             _voiceStatus = 'Error: ${errorNotification.errorMsg}'; 
-           }); 
-           _showSnackBar('Voice error: ${errorNotification.errorMsg}', isError: true); 
-         }, 
-       ); 
-       if (mounted) { 
-         setState(() { 
-           _speechRecognitionAvailable = available; 
-           if (!available) { 
-              _showSnackBar('Speech recognition not available on this device.', isError: true); 
-           } 
-         }); 
-       } 
+       final status = await Permission.microphone.request();
+       if (status.isGranted) {
+           if (mounted) setState(() => _speechRecognitionAvailable = true);
+       } else {
+           _showSnackBar('Microphone permission permanently denied.', isError: true);
+           if (mounted) setState(() => _speechRecognitionAvailable = false);
+       }
      } catch (e) { 
        if (mounted) { 
          setState(() => _speechRecognitionAvailable = false); 
@@ -762,22 +906,15 @@ class _BillingScreenState extends State<BillingScreen> {
       return;
     }
     try {
-      final String? barcode = await Navigator.push(context, MaterialPageRoute(builder: (context) => const BarcodeScannerScreen()));
-      if (barcode != null && barcode.isNotEmpty) {
-        _handleBarcodeScanned(barcode);
-      }
+      await Navigator.push(context, MaterialPageRoute(builder: (context) => ContinuousScannerScreen(
+        products: _products,
+        cart: _cart,
+        onAddItemToCart: _addItemToCart,
+        onRemoveItemFromCart: _removeItemFromCart,
+      )));
+      if (mounted) setState(() {});
     } catch (e) {
       _showSnackBar('Barcode scanning failed: $e', isError: true);
-    }
-  }
-
-  void _handleBarcodeScanned(String barcode) {
-    try {
-        final product = _products.firstWhere((p) => p.barcode == barcode || p.id == barcode);
-        _onProductTap(product);
-        _showSnackBar('Product found: ${product.name}', isError: false);
-    } catch (e) {
-        _showSnackBar('Product not found for barcode: $barcode', isError: true);
     }
   }
 
@@ -910,63 +1047,55 @@ class _BillingScreenState extends State<BillingScreen> {
 
 Future<void> _startVoiceOrder() async { 
      if (!_speechRecognitionAvailable) { 
-       _showSnackBar('Speech recognition not available or permission denied.', isError: true); 
+       _showSnackBar('Microphone permission denied.', isError: true); 
        await _initializeSpeech(); 
        return; 
      } 
 
      if (_isListening) { 
-       await _speechToText.stop(); 
-       if (mounted) setState(() => _isListening = false); 
+       try {
+         final path = await _audioRecorder.stop();
+         if (mounted) setState(() => _isListening = false); 
+         if (path != null) {
+            _parseAndAddVoiceOrder(path);
+         }
+       } catch (e) {
+         _showSnackBar('Error stopping record: $e', isError: true);
+       }
        return; 
      } 
 
      if (mounted) setState(() { 
        _isListening = true; 
-       _voiceStatus = 'Listening...'; 
+       _voiceStatus = 'Listening... Tap again to stop.'; 
      }); 
 
      try { 
-       await _speechToText.listen( 
-         onResult: (result) { 
-           if (mounted) { 
-             setState(() { 
-               _voiceStatus = 'Recognized: ${result.recognizedWords}'; 
-             }); 
-           } 
-           if (result.finalResult && result.recognizedWords.isNotEmpty) { 
-             _parseAndAddVoiceOrder(result.recognizedWords); 
-           } 
-         }, 
-         listenFor: const Duration(seconds: 15), 
-         pauseFor: const Duration(seconds: 5), 
-         partialResults: true, 
-         localeId: _malayalamLocaleId,  
-         cancelOnError: false, 
-         listenMode: ListenMode.dictation, 
-       ); 
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/billing_audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(), path: path);
      } catch (e) { 
        if (mounted) setState(() { 
          _isListening = false; 
          _voiceStatus = 'Error: $e'; 
        }); 
-       _showSnackBar('Voice recognition failed: $e', isError: true); 
+       _showSnackBar('Voice recording failed: $e', isError: true); 
      } 
    }
-  Future<void> _parseAndAddVoiceOrder(String spokenText) async {
+   
+  Future<void> _parseAndAddVoiceOrder(String audioPath) async {
     if (mounted) {
       setState(() {
         _isListening = false;
-        _voiceStatus = 'Processing: "$spokenText"';
+        _voiceStatus = 'Processing audio...';
       });
     }
 
     try {
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/ownerbot/parse-order/'),
-        headers: {'Content-Type': 'application/json; charset=UTF-8'},
-        body: jsonEncode({'text': spokenText}),
-      );
+      var request = http.MultipartRequest('POST', Uri.parse('$API_BASE_URL/ownerbot/parse-order/'));
+      request.files.add(await http.MultipartFile.fromPath('audio', audioPath));
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
         final dynamic responseData = jsonDecode(utf8.decode(response.bodyBytes));
@@ -1024,7 +1153,7 @@ Future<void> _startVoiceOrder() async {
         if (itemsAdded > 0) {
           _showSnackBar('$itemsAdded item(s) added from voice order!', isError: false);
         } else {
-          _showSnackBar('Could not find any items from: "$spokenText"', isError: true);
+          _showSnackBar('Could not find any items in audio.', isError: true);
           setState(() => _voiceStatus = 'Could not find items. Try again.');
         }
       } else {
@@ -1091,20 +1220,36 @@ Future<void> _startVoiceOrder() async {
       builder: (context) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Text('Processing sale...')])),
     );
 
+    final saleData = {
+      'items': itemsToProcess.map((item) => {
+            'product_id': item.product.id,
+            'quantity': item.quantity,
+            'weight_grams': item.weightGrams,
+            'custom_price': item.isByCustomPrice ? item.customPrice : null,
+            'total': item.total,
+            'unit_type': item.product.unitType,
+          }).toList(),
+      'total_amount': totalAmount,
+      'outlet_id': _selectedOutlet!.id,
+      'staff_id': _selectedStaff!.id,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+
     try {
-      final saleData = {
-        'items': itemsToProcess.map((item) => {
-              'product_id': item.product.id,
-              'quantity': item.quantity,
-              'weight_grams': item.weightGrams,
-              'custom_price': item.isByCustomPrice ? item.customPrice : null,
-              'total': item.total,
-              'unit_type': item.product.unitType,
-            }).toList(),
-        'total_amount': totalAmount,
-        'outlet_id': _selectedOutlet!.id,
-        'staff_id': _selectedStaff!.id,
-      };
+      if (!_isConnected) {
+        // Save offline
+        final prefs = await SharedPreferences.getInstance();
+        final pendingSalesStr = prefs.getString('pending_sales');
+        List<dynamic> pendingSales = pendingSalesStr != null ? jsonDecode(pendingSalesStr) : [];
+        pendingSales.add(saleData);
+        await prefs.setString('pending_sales', jsonEncode(pendingSales));
+        
+        Navigator.of(context).pop(); // close dialog
+        _printBill(itemsToProcess, "OFFLINE-${DateTime.now().millisecondsSinceEpoch}");
+        setState(() => _cart.clear());
+        _showSnackBar('Sale saved offline!', isError: false);
+        return;
+      }
 
       final response = await http.post(
         Uri.parse('$API_BASE_URL/sales/process/'),
@@ -1117,12 +1262,18 @@ Future<void> _startVoiceOrder() async {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final responseData = jsonDecode(utf8.decode(response.bodyBytes));
         final numericBillId = responseData['numeric_bill_id'];
+        
+        // Save last bill id for easy reprinting
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_bill_id', numericBillId.toString());
 
         await showDialog(
           context: context,
           builder: (context) => AlertDialog(
             title: const Row(children: [Icon(Icons.check_circle, color: Colors.green), SizedBox(width: 8), Text('Sale Completed')]),
-            content: Text('Sale processed successfully!\nBill No: $numericBillId\nTotal: ₹${totalAmount.toStringAsFixed(2)}'),
+            content: Text('''Sale processed successfully!
+Bill No: $numericBillId
+Total: ₹${totalAmount.toStringAsFixed(2)}'''),
             actions: [
               TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
               ElevatedButton.icon(
@@ -1147,10 +1298,59 @@ Future<void> _startVoiceOrder() async {
       }
     } catch (e) {
       if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-      _showSnackBar('Failed to process sale: $e', isError: true);
+      // On network failure during process, save offline
+      final prefs = await SharedPreferences.getInstance();
+      final pendingSalesStr = prefs.getString('pending_sales');
+      List<dynamic> pendingSales = pendingSalesStr != null ? jsonDecode(pendingSalesStr) : [];
+      pendingSales.add(saleData);
+      await prefs.setString('pending_sales', jsonEncode(pendingSales));
+      
+      _printBill(itemsToProcess, "OFFLINE-${DateTime.now().millisecondsSinceEpoch}");
+      setState(() => _cart.clear());
+      _showSnackBar('Network error. Sale saved offline!', isError: false);
     }
   }
-  
+
+  Future<void> _syncPendingSales({bool silent = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final pendingSalesStr = prefs.getString('pending_sales');
+    if (pendingSalesStr == null) {
+      if (!silent) _showSnackBar('No pending sales to sync.', isError: false);
+      return;
+    }
+    List<dynamic> pendingSales = jsonDecode(pendingSalesStr);
+    if (pendingSales.isEmpty) {
+      if (!silent) _showSnackBar('No pending sales to sync.', isError: false);
+      return;
+    }
+
+    _showSnackBar('Syncing ${pendingSales.length} offline bills...', isError: false);
+
+    List<dynamic> failedSales = [];
+    for (var saleData in pendingSales) {
+      try {
+        final response = await http.post(
+          Uri.parse('$API_BASE_URL/sales/process/'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(saleData),
+        );
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          failedSales.add(saleData);
+        }
+      } catch (e) {
+        failedSales.add(saleData);
+      }
+    }
+
+    if (failedSales.isEmpty) {
+      await prefs.remove('pending_sales');
+      _showSnackBar('All offline sales synced successfully!', isError: false);
+    } else {
+      await prefs.setString('pending_sales', jsonEncode(failedSales));
+      _showSnackBar('${failedSales.length} bills failed to sync. Will retry later.', isError: true);
+    }
+  }
+
   // --- PRINTING LOGIC ---
 
   final BlueThermalPrinter _printer = BlueThermalPrinter.instance;
@@ -1236,11 +1436,13 @@ void initState() {
                     return ListTile(
                       title: Text(device.name ?? 'Unknown Device'),
                       subtitle: Text(device.address ?? 'No Address'),
-                      onTap: () {
+                      onTap: () async {
                         setState(() {
                           _selectedPrinter = device;
                         });
-                        _showSnackBar('Printer selected: ${device.name}');
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('saved_printer_mac', device.address ?? '');
+                        _showSnackBar('Printer selected & saved: ${device.name}');
                         Navigator.of(context).pop();
                       },
                     );
@@ -1293,7 +1495,13 @@ void initState() {
 
   // Finds and reprints a previous bill
   Future<void> _findAndReprintBill() async {
-    final billNumberController = TextEditingController();
+    final prefs = await SharedPreferences.getInstance();
+    final lastBillId = prefs.getString('last_bill_id') ?? '';
+    final billNumberController = TextEditingController(text: lastBillId);
+    if (lastBillId.isNotEmpty) {
+      billNumberController.selection = TextSelection(baseOffset: 0, extentOffset: lastBillId.length);
+    }
+    
     final String? numericBillId = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1372,6 +1580,7 @@ void initState() {
         title: Text(appBarTitle),
         actions: [
           IconButton(icon: Icon(Icons.print_outlined, color: _selectedPrinter != null ? Colors.lightGreenAccent : Colors.white), onPressed: _scanAndSelectPrinter, tooltip: "Select Printer"),
+          IconButton(icon: const Icon(Icons.cloud_upload_outlined), onPressed: (_selectedOutlet == null || _selectedStaff == null) ? null : () => _syncPendingSales(silent: false), tooltip: "Sync Offline Bills"),
           IconButton(icon: const Icon(Icons.receipt_long_outlined), onPressed: (_selectedOutlet == null || _selectedStaff == null) ? null : _findAndReprintBill, tooltip: "Find Bill"),
           IconButton(icon: const Icon(Icons.qr_code_scanner), onPressed: (_selectedOutlet == null || _selectedStaff == null) ? null : _scanBarcode, tooltip: "Scan Barcode"),
           if (_speechRecognitionAvailable)

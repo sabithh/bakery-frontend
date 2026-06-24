@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:speech_to_text/speech_to_text.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+
 import 'package:intl/intl.dart'; // For date formatting
 import 'package:image_picker/image_picker.dart'; // For image picking
 import 'dart:io' show File; // For File operations (mobile)
@@ -19,7 +20,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'; /
 // --- Main App Setup ---
 // IMPORTANT: For physical devices, replace with your computer's local network IP address.
 // For example: 'http://192.168.1.7:8000' or 'http://your_server_ip:8000'
-const String API_BASE_URL = 'https://bakery-backend-5qkn.onrender.com';
+const String API_BASE_URL = 'https://jxuwtvranzrhncodhqup.supabase.co/functions/v1';
 
 
 // Notification Service for low stock alerts
@@ -63,162 +64,86 @@ String _toTitleCase(String text) {
 // The root widget of the OwnerBot application
 class OwnerBotApp extends StatelessWidget {
   const OwnerBotApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'OwnerBot',
+      title: 'OwnerBot Dashboard',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6A0B0B),
-          primary: const Color(0xFF6A0B0B),
-          secondary: Colors.amber.shade700,
-          background: const Color(0xFFF8F7F5),
-          surface: Colors.white,
-          error: Colors.red.shade800,
-        ),
-        scaffoldBackgroundColor: const Color(0xFFFFF8F1),
-        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
-        appBarTheme: AppBarTheme(
-          backgroundColor: const Color(0xFF6A0B0B),
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shadowColor: Colors.black.withOpacity(0.2),
-          centerTitle: true,
-          titleTextStyle: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey.shade300)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: const BorderSide(color: Color(0xFF6A0B0B), width: 2.0)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-        ),
-        cardTheme: CardTheme(elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8)),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-      home: const OwnerBotHomePage(), // Use the comprehensive homepage
-      debugShowCheckedModeBanner: false,
+      home: const MainScreen(),
     );
   }
 }
-// --- Home Page and Navigation ---
-// This widget manages the main navigation drawer and displays the selected screen.
-class OwnerBotHomePage extends StatefulWidget {
-  const OwnerBotHomePage({super.key});
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
   @override
-  State<OwnerBotHomePage> createState() => _OwnerBotHomePageState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _OwnerBotHomePageState extends State<OwnerBotHomePage> {
-  int _selectedIndex = 0; // Current selected index for navigation
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    NotificationService.initialize(); // Initialize notification service
-    _checkForLowStock(); // Check for low stock alerts on app start
-  }
-  
-  // Fetches low stock alerts from the backend and shows a notification
-  Future<void> _checkForLowStock() async {
-    try {
-      final response = await http.get(Uri.parse('$API_BASE_URL/reports/low-stock-alerts/'));
-      if(response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final List products = data['low_stock_products'];
-        final List ingredients = data['low_stock_ingredients'];
-
-        if (products.isNotEmpty || ingredients.isNotEmpty) {
-          String body = '';
-          if (products.isNotEmpty) body += 'Products: ${products.map((p) => p['name']).join(', ')}. ';
-          if (ingredients.isNotEmpty) body += 'Ingredients: ${ingredients.map((i) => i['name']).join(', ')}.';
-          NotificationService.showNotification('Low Stock Alert!', body);
-        }
-      }
-    } catch(e) {
-      print("Failed to check for low stock alerts: $e");
-    }
-  }
-
-  // List of widgets (screens) corresponding to navigation items
-  static final List<Widget> _widgetOptions = <Widget>[
-    const DashboardScreen(),
-    const ProfitLossScreen(),
-    const OwnerBotChat(),
-    const SalesReporterScreen(),
-    const ProductionReporterScreen(),
-    const InventoryReporterScreen(),
-    const StaffManagementScreen(),
-    const StaffAttendanceReportScreen(),
-    const ExpenseManagementScreen(),
-    const CCTVReportScreen(),
-    const CustomerReportScreen(),
-    const ProductManagementScreen(),
-    const OutletManagementScreen(), 
-    const AboutScreen(), 
+  static const List<Widget> _widgetOptions = <Widget>[
+    DashboardScreen(),
+    OwnerBotChat(),
+    OutletManagementScreen(),
+    ProductManagementScreen(),
+    SalesReporterScreen(),
+    ExpenseManagementScreen(),
+    ProfitLossScreen(),
+    AboutScreen(),
   ];
 
-  // Titles for the navigation drawer items
-  final List<String> _titles = [
-    'Dashboard', 'Profit & Loss', 'Chat with Bot', 'Sales Report', 
-    'Production Report', 'Inventory Report', 'Staff Management', 
-    'Staff Attendance Report', 'Expense Tracker', 'CCTV Observations', 
-    'Customer Report', 'Manage Products', 'Manage Outlets', 'About'
-  ];
-  // Icons for the navigation drawer items
-  final List<IconData> _icons = [
-    Icons.dashboard, Icons.trending_up, Icons.chat, Icons.show_chart, 
-    Icons.factory, Icons.inventory, Icons.people, Icons.calendar_month, 
-    Icons.money_off, Icons.videocam, Icons.shopping_cart, Icons.settings, 
-    Icons.store, Icons.info_outline
+  static const List<String> _titles = [
+    'Dashboard', 'AI Assistant', 'Outlets', 'Products', 'Sales Report', 'Expenses', 'Profit & Loss', 'About'
   ];
 
-  // Callback for when a navigation item is tapped
+  static const List<IconData> _icons = [
+    Icons.dashboard, Icons.smart_toy, Icons.store, Icons.inventory, Icons.receipt, Icons.money_off, Icons.pie_chart, Icons.info
+  ];
+
   void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index); // Update selected index
+    setState(() {
+      _selectedIndex = index;
+    });
     Navigator.pop(context); // Close the drawer
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // AppBar for the main Scaffold, dynamically changes title
       appBar: AppBar(
-        title: Text(
-          _titles[_selectedIndex], // Display the title of the currently selected screen
-          style: Theme.of(context).appBarTheme.titleTextStyle, // Use app bar theme text style
-        ),
+        title: Text(_titles[_selectedIndex]),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      // Navigation Drawer
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
-          children: <Widget>[
-            // Drawer header with app title
+          children: [
             DrawerHeader(
               decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
               child: Text('Manager Dashboard', style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
             ),
-            // List of navigation items
             for (var i = 0; i < _titles.length; i++)
               ListTile(
-                leading: Icon(_icons[i]), // Item icon
-                title: Text(_titles[i]), // Item title
-                selected: _selectedIndex == i, // Highlight if selected
-                onTap: () => _onItemTapped(i), // Handle tap
+                leading: Icon(_icons[i]),
+                title: Text(_titles[i]),
+                selected: _selectedIndex == i,
+                onTap: () => _onItemTapped(i),
               ),
           ],
         ),
       ),
-      // Display the currently selected screen in the body
       body: _widgetOptions.elementAt(_selectedIndex),
     );
   }
 }
 
-// ===================================================================
-// Dashboard Screen - Displays key performance indicators
-// ===================================================================
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -239,53 +164,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchDashboardData() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-      _error = '';
-    });
+    setState(() { _isLoading = true; _error = ''; });
     try {
-      final summaryUri = Uri.parse('$API_BASE_URL/reports/dashboard-summary/');
-      final lowStockUri = Uri.parse('$API_BASE_URL/reports/low-stock-alerts/');
-
-      // Use Future.wait for more efficient parallel fetching
-      final responses = await Future.wait([
-        http.get(summaryUri),
-        http.get(lowStockUri),
-      ]);
-
-      if (!mounted) return;
-
-      if (responses[0].statusCode == 200) {
-        _dashboardData = jsonDecode(utf8.decode(responses[0].bodyBytes));
+      final response = await http.get(Uri.parse('$API_BASE_URL/dashboard/overview/'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (mounted) {
+          setState(() {
+            _dashboardData = data['overview'] ?? {};
+            _lowStockItems = data['low_stock_items'] ?? [];
+            _isLoading = false;
+          });
+          
+          // Check for low stock items and notify
+          for (var item in _lowStockItems) {
+              NotificationService.showNotification("Low Stock Alert!", "${item['name']} stock is down to ${item['stock']}. Please reorder!");
+          }
+        }
       } else {
-        throw Exception('Failed to load dashboard summary');
-      }
-
-      if (responses[1].statusCode == 200) {
-        // First, decode the JSON object into a Map
-        final Map<String, dynamic> data = jsonDecode(utf8.decode(responses[1].bodyBytes));
-        
-        // Safely get the lists from the Map
-        final List products = data['low_stock_products'] ?? [];
-        final List ingredients = data['low_stock_ingredients'] ?? [];
-
-        // Combine both lists into the one list your UI uses
-        _lowStockItems = [...products, ...ingredients];
-        
-      } else {
-        throw Exception('Failed to load low stock items');
+        throw Exception('Failed to load dashboard');
       }
     } catch (e) {
-      if (mounted) {
-        _error = 'Error loading dashboard: $e';
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() { _error = 'Failed to load dashboard: $e'; _isLoading = false; });
     }
   }
 
@@ -318,7 +218,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: const EdgeInsets.all(16.0),
         children: [
           _buildSummaryCards(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+          _buildChart(),
+          const SizedBox(height: 16),
           _buildLowStockSection(),
         ],
       ),
@@ -332,37 +234,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
       physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 16,
       mainAxisSpacing: 16,
-      childAspectRatio: 1.2,
+      childAspectRatio: 1.1,
       children: [
         _buildInfoCard(
           context,
           icon: Icons.point_of_sale,
           title: 'Today\'s Sales',
-          value: '₹${_dashboardData['today_sales']?.toStringAsFixed(2) ?? '0.00'}',
+          value: '₹${(_dashboardData['todays_revenue'] ?? 0.0).toStringAsFixed(2)}',
           color: Colors.green,
         ),
         _buildInfoCard(
           context,
-          icon: Icons.trending_up,
-          title: 'This Month',
-          value: '₹${_dashboardData['this_month_sales']?.toStringAsFixed(2) ?? '0.00'}',
+          icon: Icons.account_balance_wallet,
+          title: 'Est. Profit',
+          value: '₹${(_dashboardData['todays_profit'] ?? 0.0).toStringAsFixed(2)}',
           color: Colors.blue,
         ),
         _buildInfoCard(
           context,
-          icon: Icons.shopping_cart,
-          title: 'Total Orders',
-          value: _dashboardData['total_orders_today']?.toString() ?? '0',
+          icon: Icons.star,
+          title: 'Top Item',
+          value: _dashboardData['top_selling_item']?.toString() ?? 'N/A',
           color: Colors.orange,
         ),
-        _buildInfoCard(
-          context,
-          icon: Icons.bakery_dining,
-          title: 'Items Sold',
-          value: _dashboardData['total_items_sold_today']?.toString() ?? '0',
-          color: Colors.purple,
-        ),
       ],
+    );
+  }
+
+  Widget _buildChart() {
+    final double revenue = (_dashboardData['todays_revenue'] ?? 0.0).toDouble();
+    final double profit = (_dashboardData['todays_profit'] ?? 0.0).toDouble();
+    final double maxVal = revenue > 0 ? revenue * 1.2 : 1000;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Revenue vs Profit', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 200,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxVal,
+                  barTouchData: BarTouchData(enabled: false),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (double value, TitleMeta meta) {
+                          const style = TextStyle(fontWeight: FontWeight.bold, fontSize: 14);
+                          String text = value == 0 ? 'Revenue' : 'Profit';
+                          return SideTitleWidget(axisSide: meta.axisSide, child: Text(text, style: style));
+                        },
+                      ),
+                    ),
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  gridData: const FlGridData(show: false),
+                  borderData: FlBorderData(show: false),
+                  barGroups: [
+                    BarChartGroupData(
+                      x: 0,
+                      barRods: [BarChartRodData(toY: revenue, color: Colors.green, width: 40, borderRadius: BorderRadius.circular(4))],
+                    ),
+                    BarChartGroupData(
+                      x: 1,
+                      barRods: [BarChartRodData(toY: profit, color: Colors.blue, width: 40, borderRadius: BorderRadius.circular(4))],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -430,7 +382,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
-
 
 // ===================================================================
 // Profit & Loss Screen - Displays financial report for a date range
@@ -1203,20 +1154,18 @@ class OwnerBotChat extends StatefulWidget {
 }
 
 class _OwnerBotChatState extends State<OwnerBotChat> {
-  final TextEditingController _controller = TextEditingController(); // Controller for text input
-  final ScrollController _scrollController = ScrollController(); // Controller for scrolling chat messages
-  final SpeechToText _speechToText = SpeechToText(); // Speech-to-Text instance
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   
-  List<Map<String, String>> messages = []; // List to store chat messages
-  bool _isLoading = false; // Loading state for bot response
-  bool _speechEnabled = false; // Indicates if speech recognition is available
-  bool _showSendButton = false; // Controls visibility of send button vs mic button
+  List<Map<String, String>> messages = [];
+  bool _isLoading = false;
+  bool _isRecording = false;
+  bool _showSendButton = false;
 
   @override
   void initState() {
     super.initState();
-    _initSpeech(); // Initialize speech recognition
-    // Listener to show/hide send button based on text input
     _controller.addListener(() {
       if (_controller.text.isNotEmpty != _showSendButton) {
         setState(() { _showSendButton = _controller.text.isNotEmpty; });
@@ -1228,81 +1177,114 @@ class _OwnerBotChatState extends State<OwnerBotChat> {
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
-    _speechToText.stop(); // Stop speech recognition when disposing
+    _audioRecorder.dispose();
     super.dispose();
   }
 
-  // Initializes speech recognition service
-  void _initSpeech() async {
-    _speechEnabled = await _speechToText.initialize(); // Initialize and check availability
-    setState(() {});
-  }
-
-  // Starts listening for speech input
-  void _startListening() {
-    if (!_speechEnabled || _speechToText.isListening) return; // Only listen if enabled and not already listening
-    _speechToText.listen(
-      onResult: (result) => setState(() => _controller.text = result.recognizedWords), // Update text field with recognized words
-      localeId: "ml_IN", // Specify Malayalam (India) locale
-    );
-    setState(() {});
-  }
-
-  // Stops listening for speech input
-  void _stopListening() {
-    if (_speechToText.isListening) {
-      _speechToText.stop();
-      setState(() {});
+  Future<void> _startRecording() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        setState(() => _isRecording = true);
+      } else {
+        _showSnackBar('Microphone permission denied', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('Error starting record: $e', isError: true);
     }
   }
 
-  // Shows a SnackBar message
+  Future<void> _stopRecordingAndSend() async {
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() => _isRecording = false);
+      if (path != null) {
+        await sendAudioMessage(path);
+      }
+    } catch (e) {
+      _showSnackBar('Error stopping record: $e', isError: true);
+    }
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: isError ? Colors.red : null));
   }
 
-  // Scrolls the chat messages to the bottom
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     });
   }
   
-  // Sends a message to the OwnerBot backend
-  Future<void> sendMessage(String msg) async {
-    if (msg.trim().isEmpty) return; // Don't send empty messages
-    FocusScope.of(context).unfocus(); // Dismiss keyboard
+  Future<void> sendAudioMessage(String filePath) async {
     setState(() {
-      messages.add({'sender': 'You', 'text': msg.trim()}); // Add user message to chat
-      _isLoading = true; // Set loading state
+      messages.add({'sender': 'You', 'text': '🎤 Voice Note'});
+      _isLoading = true;
     });
-    _controller.clear(); // Clear input field
-    _scrollToBottom(); // Scroll to bottom
+    _scrollToBottom();
+
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$API_BASE_URL/ownerbot/ask/'));
+      request.files.add(await http.MultipartFile.fromPath('audio', filePath));
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      String botTextReply;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        botTextReply = data['text_response'] ?? "No text answer received.";
+      } else {
+        botTextReply = 'Server error: ${response.statusCode}.';
+      }
+
+      setState(() => messages.add({'sender': 'OwnerBot', 'text': botTextReply}));
+    } catch (e) {
+      _showSnackBar('Network Error: Could not connect to server.', isError: true);
+      setState(() => messages.add({'sender': 'OwnerBot', 'text': 'Network Error.'}));
+    } finally {
+      if(mounted) {
+        setState(() => _isLoading = false);
+        _scrollToBottom();
+      }
+    }
+  }
+
+  Future<void> sendMessage(String msg) async {
+    if (msg.trim().isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      messages.add({'sender': 'You', 'text': msg.trim()});
+      _isLoading = true;
+    });
+    _controller.clear();
+    _scrollToBottom();
 
     try {
       final response = await http.post(
-        Uri.parse('$API_BASE_URL/ownerbot/ask/'), // Backend endpoint for bot interaction
+        Uri.parse('$API_BASE_URL/ownerbot/ask/'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'question': msg.trim(), 'mode': 'text'}), // Send text question
+        body: jsonEncode({'question': msg.trim(), 'mode': 'text'}),
       );
 
       String botTextReply;
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        botTextReply = data['text_response'] ?? "No text answer received."; // Get bot's text response
+        botTextReply = data['text_response'] ?? "No text answer received.";
       } else {
-        botTextReply = 'Server error: ${response.statusCode}.'; // Handle server error
+        botTextReply = 'Server error: ${response.statusCode}.';
       }
 
-      setState(() => messages.add({'sender': 'OwnerBot', 'text': botTextReply})); // Add bot's response to chat
+      setState(() => messages.add({'sender': 'OwnerBot', 'text': botTextReply}));
     } catch (e) {
       _showSnackBar('Network Error: Could not connect to server.', isError: true);
-      setState(() => messages.add({'sender': 'OwnerBot', 'text': 'Network Error.'})); // Handle network error
+      setState(() => messages.add({'sender': 'OwnerBot', 'text': 'Network Error.'}));
     } finally {
       if(mounted) {
-        setState(() => _isLoading = false); // End loading state
-        _scrollToBottom(); // Scroll to bottom again
+        setState(() => _isLoading = false);
+        _scrollToBottom();
       }
     }
   }
@@ -1314,24 +1296,23 @@ class _OwnerBotChatState extends State<OwnerBotChat> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder( // Display chat messages
+            child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               itemCount: messages.length,
               itemBuilder: (context, index) {
                 final message = messages[index];
-                return MessageBubble(message: message['text']!, isUser: message['sender'] == 'You'); // Display message bubbles
+                return MessageBubble(message: message['text']!, isUser: message['sender'] == 'You');
               },
             ),
           ),
-          if (_isLoading) const Padding(padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()), // Show progress indicator when loading
-          _buildMessageInput(), // Message input area
+          if (_isLoading) const Padding(padding: EdgeInsets.all(8.0), child: LinearProgressIndicator()),
+          _buildMessageInput(),
         ],
       ),
     );
   }
 
-  // Builds the message input area with text field and buttons
   Widget _buildMessageInput() {
     return Container(
       padding: const EdgeInsets.all(8.0),
@@ -1341,24 +1322,22 @@ class _OwnerBotChatState extends State<OwnerBotChat> {
       ),
       child: Row(
         children: [
-          // Button to launch dedicated Voice Chat Screen
           IconButton(
             icon: Icon(Icons.headset_mic, color: Theme.of(context).colorScheme.primary),
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const VoiceChatScreen())),
             tooltip: 'Launch Voice Assistant',
           ),
           Expanded(
-            child: TextField( // Text input field
+            child: TextField(
               controller: _controller,
-              onSubmitted: sendMessage, // Send message on submit
-              decoration: const InputDecoration.collapsed(hintText: 'Type or use mic...'),
+              onSubmitted: sendMessage,
+              decoration: const InputDecoration.collapsed(hintText: 'Type message or use mic...'),
             ),
           ),
-          // Dynamic button: Send if text is present, else mic for speech-to-text
           IconButton(
-            icon: Icon(_showSendButton ? Icons.send : Icons.mic, color: Theme.of(context).colorScheme.primary),
-            onPressed: _isLoading ? null : (_showSendButton ? () => sendMessage(_controller.text) : (_speechToText.isListening ? _stopListening : _startListening)),
-            tooltip: _showSendButton ? 'Send Message' : 'Use Speech-to-Text',
+            icon: Icon(_showSendButton ? Icons.send : (_isRecording ? Icons.stop : Icons.mic), color: _isRecording ? Colors.red : Theme.of(context).colorScheme.primary),
+            onPressed: _isLoading ? null : (_showSendButton ? () => sendMessage(_controller.text) : (_isRecording ? _stopRecordingAndSend : _startRecording)),
+            tooltip: _showSendButton ? 'Send Message' : (_isRecording ? 'Stop Recording' : 'Record Audio'),
           ),
         ],
       ),
@@ -1377,142 +1356,112 @@ class VoiceChatScreen extends StatefulWidget {
 }
 
 class _VoiceChatScreenState extends State<VoiceChatScreen> with SingleTickerProviderStateMixin {
-  final SpeechToText _speechToText = SpeechToText(); // Speech-to-Text instance
-  final AudioPlayer _audioPlayer = AudioPlayer(); // Audio player instance
-  VoiceChatState _currentState = VoiceChatState.idle; // Current state of voice chat
-  String _statusText = "Tap the mic to start"; // Status text displayed to user
-  String _lastRecognizedWords = ""; // Last recognized speech
-  late AnimationController _pulseController; // Animation controller for mic button pulse
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  VoiceChatState _currentState = VoiceChatState.idle;
+  String _statusText = "Tap the mic to start";
+  late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    // Initialize pulse animation for the mic button
     _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat(reverse: true);
-    _initSpeech(); // Initialize speech recognition
-    // Listen for audio player state changes to restart listening after bot speaks
     _audioPlayer.onPlayerStateChanged.listen((state) {
       if (state == PlayerState.completed && mounted) {
-        _startListening();
+        _startRecording();
       }
     });
   }
 
   @override
   void dispose() {
-    _speechToText.stop(); // Stop speech recognition
-    _audioPlayer.dispose(); // Dispose audio player
-    _pulseController.dispose(); // Dispose animation controller
+    _audioRecorder.dispose();
+    _audioPlayer.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
-  // Initializes speech recognition, handling errors and status updates
-  void _initSpeech() async {
+  Future<void> _startRecording() async {
     try {
-      await _speechToText.initialize(
-        onError: (error) => _handleError("Speech recognition error: ${error.errorMsg}"),
-        onStatus: (status) {
-          if (status == 'notListening' && _currentState == VoiceChatState.listening) {
-            _stopListeningAndProcess(); // Automatically stop and process if not listening
-          }
+      if (await _audioRecorder.hasPermission()) {
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/voice_chat_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        if(mounted) setState(() {
+          _currentState = VoiceChatState.listening;
+          _statusText = "Listening...";
         });
+      } else {
+        _handleError("Microphone permission denied");
+      }
     } catch (e) {
-      _handleError("Error initializing speech recognition: $e");
+      _handleError("Error starting record: $e");
     }
   }
 
-  // Starts listening for speech input
-  void _startListening() {
-    if (!_speechToText.isAvailable || _speechToText.isListening || !mounted) return; // Check availability and state
-    setState(() {
-      _currentState = VoiceChatState.listening; // Set state to listening
-      _statusText = "Listening..."; // Update status text
-      _lastRecognizedWords = ""; // Clear last recognized words
-    });
-    _speechToText.listen(
-      onResult: _onSpeechResult, // Callback for speech results
-      localeId: "ml_IN", // Specify Malayalam (India) locale for better recognition
-      pauseFor: const Duration(seconds: 2), // Pause before final result
-      listenFor: const Duration(minutes: 1), // Max listening duration
-    );
-  }
-  
-  // Manually stops listening (e.g., when user taps mic button again)
-  void _manualStopListening() {
-    if (_speechToText.isListening) {
-      _speechToText.stop();
-    } else {
-      _stopListeningAndProcess(); // If not listening, just process
-    }
-  }
-  
-  // Stops listening and processes the recognized speech
-  void _stopListeningAndProcess() {
-    if (_lastRecognizedWords.isNotEmpty) {
-      if(mounted) setState(() { _currentState = VoiceChatState.processing; _statusText = "Thinking..."; }); // Set processing state
-      _sendMessage(_lastRecognizedWords); // Send message to bot
-    } else {
-      if(mounted) setState(() => _currentState = VoiceChatState.idle); // Go back to idle if no words recognized
-    }
-  }
-
-  // Callback for speech recognition results
-  void _onSpeechResult(SpeechRecognitionResult result) {
-    if(mounted) setState(() => _lastRecognizedWords = result.recognizedWords); // Update recognized words
-    if (result.finalResult) {
-      _stopListeningAndProcess(); // Process if it's the final result
-    }
-  }
-
-  // Sends the recognized message to the OwnerBot backend for a voice response
-  Future<void> _sendMessage(String msg) async {
-    if (!mounted) return;
-    setState(() { _currentState = VoiceChatState.processing; _statusText = "Getting response..."; }); // Set processing state
+  Future<void> _stopRecordingAndProcess() async {
     try {
-      final response = await http.post(
-        Uri.parse('$API_BASE_URL/ownerbot/ask/'), // Backend endpoint
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'question': msg.trim(), 'mode': 'voice'}), // Request voice response
-      );
+      final path = await _audioRecorder.stop();
+      if(mounted) setState(() {
+        _currentState = VoiceChatState.processing;
+        _statusText = "Thinking...";
+      });
+      if (path != null) {
+        await _sendAudioMessage(path);
+      } else {
+        if(mounted) setState(() => _currentState = VoiceChatState.idle);
+      }
+    } catch (e) {
+      _handleError("Error stopping record: $e");
+    }
+  }
+
+  Future<void> _sendAudioMessage(String filePath) async {
+    if (!mounted) return;
+    setState(() { _currentState = VoiceChatState.processing; _statusText = "Getting response..."; });
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$API_BASE_URL/ownerbot/ask/'));
+      request.files.add(await http.MultipartFile.fromPath('audio', filePath));
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      
       if (!mounted) return;
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final audioData = data['audio_response']; // Base64 encoded audio
-        final textResponse = data['text_response'] ?? 'No text response'; // Text response
+        final audioData = data['audio_response'];
+        final textResponse = data['text_response'] ?? 'No text response';
         if (audioData != null && audioData.isNotEmpty) {
-          setState(() { _currentState = VoiceChatState.speaking; _statusText = textResponse; }); // Set speaking state
-          await _playAudio(audioData); // Play the audio response
-        } else { _handleError("Received response with no audio."); } // Handle no audio
-      } else { _handleError("Server error: ${response.statusCode}"); } // Handle server error
+          setState(() { _currentState = VoiceChatState.speaking; _statusText = textResponse; });
+          await _playAudio(audioData);
+        } else { _handleError("Received response with no audio."); }
+      } else { _handleError("Server error: ${response.statusCode}"); }
     } catch (e) {
-      _handleError("Network Error: $e"); // Handle network error
+      _handleError("Network Error: $e");
     }
   }
 
-  // Plays base64 encoded audio
   Future<void> _playAudio(String base64Audio) async {
     try {
-      await _audioPlayer.play(BytesSource(base64.decode(base64Audio))); // Decode and play audio
-    } catch (e) { _handleError("Could not play audio."); } // Handle audio playback error
+      await _audioPlayer.play(BytesSource(base64.decode(base64Audio)));
+    } catch (e) { _handleError("Could not play audio."); }
   }
 
-  // Handles and displays errors
   void _handleError(String errorMsg) {
-    print(errorMsg); // Print error to console
+    print(errorMsg);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg), backgroundColor: Colors.red)); // Show snackbar
-      setState(() { _currentState = VoiceChatState.idle; _statusText = "Tap the mic to start"; }); // Reset to idle
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+      setState(() { _currentState = VoiceChatState.idle; _statusText = "Tap the mic to start"; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Dark background for voice chat
+      backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.of(context).pop()), // Close button
+        leading: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.of(context).pop()),
       ),
       body: Center(
         child: Column(
@@ -1521,13 +1470,13 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> with SingleTickerProv
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Text(
-                _currentState == VoiceChatState.listening && _lastRecognizedWords.isNotEmpty ? _lastRecognizedWords : _statusText,
+                _statusText,
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
               ),
             ),
             const Spacer(flex: 1),
-            _buildMicButton(), // Mic button
+            _buildMicButton(),
             const Spacer(flex: 2),
           ],
         ),
@@ -1535,7 +1484,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> with SingleTickerProv
     );
   }
 
-  // Builds the dynamic mic button based on current state
   Widget _buildMicButton() {
     IconData icon;
     Color buttonColor;
@@ -1549,12 +1497,12 @@ class _VoiceChatScreenState extends State<VoiceChatScreen> with SingleTickerProv
     return GestureDetector(
       onTap: () {
         if (_currentState == VoiceChatState.idle) {
-          _startListening(); // Start listening from idle
+          _startRecording();
         } else if (_currentState == VoiceChatState.listening) {
-          _manualStopListening(); // Manually stop listening
+          _stopRecordingAndProcess();
         }
       },
-      child: AnimatedContainer( // Animated container for visual feedback
+      child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         width: 120, height: 120,
         decoration: BoxDecoration(
