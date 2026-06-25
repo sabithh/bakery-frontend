@@ -36,7 +36,14 @@ class OwnerBotApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'OwnerBot Dashboard',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE1AD01)), // Mustard Yellow
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFE1AD01), // Mustard Yellow
+          primary: const Color(0xFFE1AD01),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFE1AD01),
+          foregroundColor: Colors.white,
+        ),
         useMaterial3: true,
       ),
       home: const MainScreen(),

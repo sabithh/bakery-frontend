@@ -10,10 +10,8 @@ from flask import Flask, request, jsonify
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud import translate_v2 as translate, texttospeech
-import google.generativeai as genai
-import google.auth
-import numpy as np
 import requests
+from groq import Groq
 # import cv2 # Not directly used in the provided snippets, but kept as it was in your original
 
 # --- For Speech-to-Text (using local Whisper model) ---
@@ -53,8 +51,11 @@ def initialize_clients():
         db = firestore.Client(project=PROJECT_ID, credentials=credentials)
         translate_client = translate.Client(credentials=credentials)
         tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+        
+        GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+        if not GROQ_API_KEY:
+            print("WARNING: GROQ_API_KEY not found in environment.")
+        model = Groq(api_key=GROQ_API_KEY)
         
         # --- LOAD LOCAL WHISPER MODEL ---
         # This loads the model into memory. "small" is a good balance of
@@ -259,37 +260,139 @@ def get_ownerbot_response(message: str, mode: str = 'voice'):
     """
     
     if not model:
-        print("WARN: Gemini model not initialized, attempting re-initialization.")
+        print("WARN: Groq client not initialized, attempting re-initialization.")
         initialize_clients() 
         if not model: 
-            return {"text_response": "Error: Gemini model not available.", "audio_response": None}
+            return {"text_response": "Error: Groq client not available.", "audio_response": None}
 
-    tools = [
-        get_sales_report,
-        get_profit_report,
-        get_production_report,
-        get_inventory_report,
-        get_staff_activity_report
+    tools_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_sales_report",
+                "description": "Fetches a sales report for a given date range and optional outlet.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+                        "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
+                        "outlet_id": {"type": "string", "description": "Outlet ID or 'All Outlets'"}
+                    },
+                    "required": ["start_date", "end_date"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_profit_report",
+                "description": "Calculates and returns a profit and loss summary for a given date range.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+                        "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"}
+                    },
+                    "required": ["start_date", "end_date"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_production_report",
+                "description": "Fetches a production report for a given date range.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+                        "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"}
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_inventory_report",
+                "description": "Fetches the current inventory report.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_staff_activity_report",
+                "description": "Fetches a staff activity report for a given staff member and date range.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "staff_name": {"type": "string", "description": "Name of the staff member"},
+                        "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+                        "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"}
+                    }
+                }
+            }
+        }
     ]
+
+    tool_functions = {
+        "get_sales_report": get_sales_report,
+        "get_profit_report": get_profit_report,
+        "get_production_report": get_production_report,
+        "get_inventory_report": get_inventory_report,
+        "get_staff_activity_report": get_staff_activity_report
+    }
     
     original_lang = detect_language(message).get('language', 'en')
     msg_en = translate_text(message, 'en')
 
     try:
-        temp_model = genai.GenerativeModel(
-            'models/gemini-1.5-flash-latest',
-            system_instruction=system_prompt,
-            tools=tools
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": msg_en}
+        ]
+        response = model.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=messages,
+            tools=tools_schema,
+            tool_choice="auto",
+            max_tokens=4096
         )
-        chat = temp_model.start_chat(enable_automatic_function_calling=True)
-        response = chat.send_message(msg_en) 
-        text_en = response.text
+        
+        response_message = response.choices[0].message
+        tool_calls = response_message.tool_calls
+        
+        if tool_calls:
+            messages.append(response_message)
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                function_to_call = tool_functions.get(function_name)
+                if function_to_call:
+                    function_args = json.loads(tool_call.function.arguments)
+                    function_response = function_to_call(**function_args)
+                    messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": str(function_response),
+                    })
+            second_response = model.chat.completions.create(
+                model="llama3-70b-8192",
+                messages=messages
+            )
+            text_en = second_response.choices[0].message.content
+        else:
+            text_en = response_message.content
         
         if not text_en or text_en.strip() == "":
             text_en = "I'm sorry, I couldn't generate a proper response."
             
     except Exception as e:
-        print(f"ERROR: Gemini inference failed: {e}")
+        print(f"ERROR: Groq inference failed: {e}")
         text_en = "I'm sorry, I had trouble understanding that. Please rephrase."
 
     audio_b64 = None
