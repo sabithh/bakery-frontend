@@ -276,9 +276,17 @@ def get_ownerbot_response(message: str, mode: str = 'voice'):
     msg_en = translate_text(message, 'en')
 
     try:
-        chat = model.start_chat(enable_automatic_function_calling=True)
-        response = chat.send_message(msg_en, tools=tools) 
+        temp_model = genai.GenerativeModel(
+            'models/gemini-1.5-flash-latest',
+            system_instruction=system_prompt,
+            tools=tools
+        )
+        chat = temp_model.start_chat(enable_automatic_function_calling=True)
+        response = chat.send_message(msg_en) 
         text_en = response.text
+        
+        if not text_en or text_en.strip() == "":
+            text_en = "I'm sorry, I couldn't generate a proper response."
             
     except Exception as e:
         print(f"ERROR: Gemini inference failed: {e}")
