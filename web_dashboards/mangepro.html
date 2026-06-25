@@ -95,7 +95,7 @@
 
     <script>
         // --- UPDATED API URL ---
-        const API_BASE_URL = 'https://web-production-b7e2a.up.railway.app';
+        const API_BASE_URL = 'https://jxuwtvranzrhncodhqup.supabase.co/functions/v1';
         const PRODUCTS_URL = `${API_BASE_URL}/items/manage-products/`;
         const UPLOAD_IMAGE_URL = `${API_BASE_URL}/items/upload-image/`;
         const GENERATE_BARCODE_URL = `${API_BASE_URL}/items/generate-barcode/`;
@@ -199,7 +199,7 @@
                         </div>
                         <div class="relative">
                              <input id="prod-barcode" type="text" placeholder="Barcode" value="${product?.barcode || ''}">
-                             <button type="button" onclick="generateBarcode()" class="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-200 px-3 py-1 rounded text-sm font-semibold text-gray-700 hover:bg-gray-300">Generate</button>
+                             <button type="button" id="btn-generate-barcode" onclick="generateBarcode()" class="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-200 px-3 py-1 rounded text-sm font-semibold text-gray-700 hover:bg-gray-300">Generate</button>
                         </div>
                         <div class="grid md:grid-cols-2 gap-4">
                              <select id="prod-unit-type">
@@ -239,6 +239,8 @@
         }
         
         async function generateBarcode() {
+            const btn = document.getElementById('btn-generate-barcode');
+            if (btn) { btn.textContent = 'Generating...'; btn.disabled = true; }
             try {
                 const response = await fetch(GENERATE_BARCODE_URL);
                 const data = await response.json();
@@ -249,6 +251,30 @@
                 }
             } catch(e) {
                 showNotification(e.message, true);
+            } finally {
+                if (btn) { btn.textContent = 'Generate'; btn.disabled = false; }
+            }
+        }
+
+        async function recordWholesaleExpense(amount, productName) {
+            const expenseData = {
+                description: `Wholesale purchase: ${productName}`,
+                amount: amount,
+                category: 'Raw Materials',
+                date: new Date().toISOString().split('T')[0]
+            };
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/expenses/manage/`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(expenseData)
+                });
+                if (!response.ok) {
+                    console.warn('Failed to record wholesale expense');
+                }
+            } catch (e) {
+                console.error('Error recording wholesale expense:', e);
             }
         }
 
@@ -273,13 +299,13 @@
             const productType = document.getElementById('prod-type').value;
             const productData = {
                 name: document.getElementById('prod-name').value,
-                price: parseFloat(document.getElementById('prod-price').value),
-                stock: parseInt(document.getElementById('prod-stock').value),
-                low_stock_threshold: parseInt(document.getElementById('prod-threshold').value),
+                price: parseFloat(document.getElementById('prod-price').value) || 0,
+                stock: parseInt(document.getElementById('prod-stock').value) || 0,
+                low_stock_threshold: parseInt(document.getElementById('prod-threshold').value) || 10,
                 barcode: document.getElementById('prod-barcode').value,
                 unit_type: document.getElementById('prod-unit-type').value,
                 type: productType,
-                cost_price: productType === 'wholesale' ? parseFloat(document.getElementById('prod-cost-price').value) : 0,
+                cost_price: productType === 'wholesale' ? (parseFloat(document.getElementById('prod-cost-price').value) || 0) : 0,
                 image_url: imageUrl || '',
             };
 
@@ -296,6 +322,12 @@
                     const error = await response.json();
                     throw new Error(error.error || 'Failed to save product');
                 }
+                
+                if (productType === 'wholesale') {
+                    const totalWholesaleExpense = productData.cost_price * productData.stock;
+                    await recordWholesaleExpense(totalWholesaleExpense, productData.name);
+                }
+
                 showNotification('Product saved successfully!');
                 closeModal('product-modal');
                 fetchProducts();
